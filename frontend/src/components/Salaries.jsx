@@ -3,30 +3,32 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import { api } from "../api.js";
 import { formatMoney, formatMoneyShort } from "../format.js";
 import { useApi } from "../useApi.js";
-import { ChartTooltip, Segmented, Select, Status } from "./Controls.jsx";
+import { BAR_SIZE, chartHeight, ChartTooltip, describeScope, Segmented, Status, WORK_MODE_LABELS } from "./Controls.jsx";
 
-const ROW_HEIGHT = 34;
+const ROW_HEIGHT = 32;
+const GROUP_LABELS = { role: "role", state: "state", city: "city", work_mode: "work setting" };
 
-export default function Salaries({ filters }) {
+export default function Salaries({ scope }) {
   const [groupBy, setGroupBy] = useState("role");
-  const [role, setRole] = useState("");
-  const [city, setCity] = useState("");
   const [includePredicted, setIncludePredicted] = useState(false);
   const [asTable, setAsTable] = useState(false);
 
   const { data, error, loading } = useApi(
     () =>
       api.salaries({
+        ...scope,
         group_by: groupBy,
-        role,
-        city,
         include_predicted: includePredicted,
-        limit: 15,
+        limit: 25,
       }),
-    [groupBy, role, city, includePredicted],
+    [scope, groupBy, includePredicted],
   );
 
-  const groups = (data?.groups ?? []).map((g) => ({ ...g, range: [g.avg_min, g.avg_max] }));
+  const groups = (data?.groups ?? []).map((g) => ({
+    ...g,
+    group: groupBy === "work_mode" ? (WORK_MODE_LABELS[g.group] ?? g.group) : g.group,
+    range: [g.avg_min, g.avg_max],
+  }));
   // Ranges aren't measured from zero, so the axis hugs the data (in $20k steps).
   const STEP = 20000;
   const domain = [
@@ -40,9 +42,10 @@ export default function Salaries({ filters }) {
     <section className="panel">
       <div className="panel-head">
         <div>
-          <h2>Salary by {groupBy === "role" ? "role" : "city"}</h2>
+          <h2>Salary by {GROUP_LABELS[groupBy]}</h2>
           <p className="muted">
-            Bars span the average posted minimum to maximum; the tick marks the median midpoint.
+            {describeScope(scope)} · bars span the average posted minimum to maximum; the tick
+            marks the median midpoint.
           </p>
         </div>
         <div className="filters">
@@ -52,11 +55,11 @@ export default function Salaries({ filters }) {
             onChange={setGroupBy}
             options={[
               { value: "role", label: "Role" },
+              { value: "state", label: "State" },
               { value: "city", label: "City" },
+              { value: "work_mode", label: "Work setting" },
             ]}
           />
-          <Select label="Role" value={role} onChange={setRole} options={filters?.roles ?? []} allLabel="All roles" />
-          <Select label="City" value={city} onChange={setCity} options={filters?.cities ?? []} allLabel="All cities" />
           <label className="field checkbox">
             <input
               type="checkbox"
@@ -89,7 +92,7 @@ export default function Salaries({ filters }) {
           <table className="data-table">
             <thead>
               <tr>
-                <th>{groupBy === "role" ? "Role" : "City"}</th>
+                <th>{GROUP_LABELS[groupBy][0].toUpperCase() + GROUP_LABELS[groupBy].slice(1)}</th>
                 <th className="num">Postings</th>
                 <th className="num">Avg. min</th>
                 <th className="num">Avg. max</th>
@@ -109,7 +112,7 @@ export default function Salaries({ filters }) {
             </tbody>
           </table>
         ) : (
-          <div className="chart" style={{ height: groups.length * ROW_HEIGHT + 40 }}>
+          <div className="chart" style={{ height: chartHeight(groups.length, ROW_HEIGHT) }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={groups} layout="vertical" margin={{ top: 4, right: 24, bottom: 4, left: 8 }} barCategoryGap={8}>
                 <CartesianGrid horizontal={false} className="grid" />
@@ -123,7 +126,7 @@ export default function Salaries({ filters }) {
                   tickLine={false}
                   axisLine={false}
                 />
-                <YAxis type="category" dataKey="group" width={140} className="axis" tickLine={false} axisLine={false} />
+                <YAxis type="category" dataKey="group" width={150} className="axis" tickLine={false} axisLine={false} />
                 <Tooltip
                   cursor={{ className: "cursor" }}
                   content={
@@ -141,7 +144,8 @@ export default function Salaries({ filters }) {
                     />
                   }
                 />
-                <Bar dataKey="range" className="series-1" radius={4} isAnimationActive={false} shape={<RangeBar />} />
+                <Bar dataKey="range" className="series-1" radius={4} barSize={BAR_SIZE}
+                    isAnimationActive={false} shape={<RangeBar />} />
               </BarChart>
             </ResponsiveContainer>
           </div>

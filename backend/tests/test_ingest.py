@@ -17,7 +17,7 @@ RAW = {
     "salary_min": 120000,
     "salary_max": 150000,
     "salary_is_predicted": "0",
-    "description": "Own our dbt project on Snowflake. Strong SQL and Python required.",
+    "description": "Own our dbt project on Snowflake. Strong SQL and Python required. Remote.",
     "redirect_url": "https://www.adzuna.com/details/4812345678",
     "created": "2026-09-27T14:03:11Z",
 }
@@ -30,6 +30,7 @@ def test_parse_result():
     assert p.company == "Acme Corp"
     assert (p.city, p.state) == ("Austin", "Texas")
     assert p.role == "Analytics Engineer"  # title beats the search term
+    assert p.work_mode == "remote"
     assert (p.salary_min, p.salary_max, p.salary_is_predicted) == (120000, 150000, False)
     assert p.posted_at.isoformat() == "2026-09-27T14:03:11+00:00"
     assert parsed.skills == {"dbt", "Snowflake", "SQL", "Python"}
@@ -70,10 +71,13 @@ def test_adzuna_client_pages_until_short_page():
         return httpx.Response(200, json={"results": [{"id": f"{page}-{i}"} for i in range(count)]})
 
     settings = Settings(adzuna_app_id="id", adzuna_app_key="key")
-    client = AdzunaClient(settings, http=httpx.Client(transport=httpx.MockTransport(handler)))
+    client = AdzunaClient(
+        settings, http=httpx.Client(transport=httpx.MockTransport(handler)), min_interval=0
+    )
     results = list(client.iter_postings("data analyst", pages=5, max_days_old=1))
 
     assert len(results) == 53
+    assert client.requests_made == 2
     assert [page for page, _ in calls] == [1, 2]
     assert calls[0][1]["what_phrase"] == "data analyst"
     assert calls[0][1]["app_id"] == "id"
@@ -93,3 +97,36 @@ def test_settings_normalize_postgres_url_and_csv():
     assert s.database_url == "postgresql+psycopg://u:p@host/db?sslmode=require"
     assert s.search_terms == ["data analyst", "bi analyst"]
     assert s.cors_origins == ["https://a.example", "https://b.example"]
+
+
+def test_migration_adds_and_backfills_work_mode(tmp_path):
+    """A database created before work_mode existed gets the column and backfilled values."""
+    from sqlalchemy import text
+
+    from app.db import init_db, make_engine
+
+    engine = make_engine(f"sqlite:///{tmp_path}/old.db")
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE postings (id VARCHAR(64) PRIMARY KEY, title VARCHAR(300),"
+                " company VARCHAR(300), location VARCHAR(300), city VARCHAR(120),"
+                " state VARCHAR(120), role VARCHAR(60), salary_min FLOAT, salary_max FLOAT,"
+                " salary_is_predicted BOOLEAN, description TEXT, url VARCHAR(1000),"
+                " posted_at DATETIME, ingested_at DATETIME)"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO postings (id, title, description, role, posted_at)"
+                " VALUES ('a', 'Remote Data Analyst', '', 'Data Analyst', '2026-09-01'),"
+                " ('b', 'Data Analyst', 'Hybrid in Austin', 'Data Analyst', '2026-09-01')"
+            )
+        )
+
+    init_db(engine)
+    init_db(engine)  # idempotent
+
+    with engine.connect() as conn:
+        rows = dict(conn.execute(text("SELECT id, work_mode FROM postings")).all())
+    assert rows == {"a": "remote", "b": "hybrid"}

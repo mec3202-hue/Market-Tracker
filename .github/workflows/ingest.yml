@@ -6,8 +6,11 @@ on:
   workflow_dispatch:
     inputs:
       pages:
-        description: Pages per search term (50 postings per page)
+        description: Max pages per search term (50 postings per page)
         default: "5"
+      max_days_old:
+        description: How many days back to look (use 30 for a first backfill)
+        default: "3"
 
 jobs:
   ingest:
@@ -34,4 +37,7 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
           ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
-        run: python -m app.ingest --pages "${{ inputs.pages || '5' }}" --max-days-old 2
+        run: >-
+          python -m app.ingest
+          --pages "${{ inputs.pages || '5' }}"
+          --max-days-old "${{ inputs.max_days_old || '3' }}"

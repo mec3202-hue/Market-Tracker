@@ -130,6 +130,16 @@ def test_salaries_min_postings(client, add_posting):
     assert client.get("/salaries").json()["groups"] == []  # default min_postings=3
 
 
+def test_salaries_grouped_by_state_and_work_mode(client, add_posting):
+    add_posting(state="California", city="Los Angeles", salary=(100_000, 120_000))
+    add_posting(state="Texas", work_mode="remote", salary=(80_000, 80_000))
+
+    by_state = client.get("/salaries?group_by=state&min_postings=1").json()
+    assert [g["group"] for g in by_state["groups"]] == ["California", "Texas"]
+    by_mode = client.get("/salaries?group_by=work_mode&min_postings=1").json()
+    assert [g["group"] for g in by_mode["groups"]] == ["onsite", "remote"]
+
+
 def test_salaries_validation(client):
     assert client.get("/salaries?group_by=company").status_code == 422
     assert client.get("/salaries?role=chef").status_code == 422
@@ -236,6 +246,98 @@ def test_filters(client, add_posting):
 
     body = client.get("/filters").json()
     assert body["roles"] == ["Business Analyst", "Data Analyst"]
-    assert body["cities"] == ["Austin", "Denver"]
+    assert body["states"] == ["Texas"]
+    assert body["cities"] == [
+        {"city": "Austin", "state": "Texas"},
+        {"city": "Denver", "state": "Texas"},
+    ]
     assert body["total_postings"] == 3
     assert body["last_ingested_at"] is not None
+
+
+# State and work-setting scope --------------------------------------------------
+
+
+def test_scope_filters_apply_to_every_view(client, add_posting):
+    add_posting(skills=["SQL"], state="California", city="Los Angeles", work_mode="remote")
+    add_posting(skills=["Excel"], state="Texas", work_mode="onsite")
+
+    trending = client.get("/skills/trending?state=CA").json()  # abbreviation accepted
+    assert [s["skill"] for s in trending["skills"]] == ["SQL"]
+
+    postings = client.get("/postings?work_mode=remote").json()
+    assert postings["total"] == 1
+    assert postings["items"][0]["work_mode"] == "remote"
+    assert postings["items"][0]["state"] == "California"
+
+    gap = client.post("/skills/gap", json={"state": "texas"}).json()
+    assert [s["skill"] for s in gap["top_skills"]] == ["Excel"]
+
+
+def test_scope_validation(client):
+    assert client.get("/postings?work_mode=moon").status_code == 422
+    assert client.get("/postings?state=X").status_code == 422
+    assert client.post("/skills/gap", json={"work_mode": "moon"}).status_code == 422
+
+
+# /locations ------------------------------------------------------------------
+
+
+def test_locations_by_state(client, add_posting):
+    add_posting(
+        state="California", city="Los Angeles", work_mode="remote", salary=(100_000, 100_000)
+    )
+    add_posting(state="California", city="San Diego", salary=(80_000, 80_000))
+    add_posting(state="Texas", work_mode="hybrid")
+    add_posting(state=None, city=None, work_mode="remote")  # no location: counted, not grouped
+
+    body = client.get("/locations").json()
+    assert body["group_by"] == "state"
+    assert body["total_postings"] == 4
+    modes = {m["work_mode"]: m for m in body["work_modes"]}
+    assert (
+        modes["remote"]["postings"],
+        modes["hybrid"]["postings"],
+        modes["onsite"]["postings"],
+    ) == (2, 1, 1)
+    assert modes["remote"]["share"] == 0.5
+    ca, tx = body["groups"]
+    assert ca == {
+        "name": "California",
+        "postings": 2,
+        "share": 0.5,
+        "remote_share": 0.5,
+        "median_salary": 90_000,
+        "salary_postings": 2,
+    }
+    assert tx["name"] == "Texas"
+    assert tx["median_salary"] is None
+
+
+def test_locations_drill_into_state_cities(client, add_posting):
+    add_posting(state="California", city="Los Angeles")
+    add_posting(state="California", city="Los Angeles")
+    add_posting(state="California", city="San Diego")
+    add_posting(state="Texas", city="Austin")
+
+    body = client.get("/locations?state=California").json()
+    assert body["group_by"] == "city"
+    assert body["state"] == "California"
+    assert [(g["name"], g["postings"]) for g in body["groups"]] == [
+        ("Los Angeles", 2),
+        ("San Diego", 1),
+    ]
+
+
+def test_locations_work_mode_filter(client, add_posting):
+    add_posting(state="California", work_mode="remote")
+    add_posting(state="Texas", work_mode="onsite")
+    body = client.get("/locations?work_mode=remote").json()
+    assert [g["name"] for g in body["groups"]] == ["California"]
+    assert body["total_postings"] == 1
+    # The split still shows every work setting for the other filters.
+    assert [(m["work_mode"], m["share"]) for m in body["work_modes"]] == [
+        ("remote", 0.5),
+        ("hybrid", 0.0),
+        ("onsite", 0.5),
+    ]

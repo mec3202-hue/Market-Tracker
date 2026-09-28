@@ -17,19 +17,37 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 from app.db import SessionLocal, init_db
 from app.models import Posting, PostingSkill
-from app.skills import classify_role, extract_skills
+from app.skills import classify_role, detect_work_mode, extract_skills
 
 log = logging.getLogger("ingest")
 
 RESULTS_PER_PAGE = 50
+# Adzuna's free tier allows 25 requests a minute (and 250 a day), so space
+# requests out a little.
+MIN_REQUEST_INTERVAL = 2.5
 
 
 class AdzunaClient:
-    def __init__(self, settings: Settings, http: httpx.Client | None = None):
+    def __init__(
+        self,
+        settings: Settings,
+        http: httpx.Client | None = None,
+        min_interval: float = MIN_REQUEST_INTERVAL,
+    ):
         if not settings.adzuna_app_id or not settings.adzuna_app_key:
             raise RuntimeError("ADZUNA_APP_ID and ADZUNA_APP_KEY must be set to ingest postings")
         self.settings = settings
         self.http = http or httpx.Client(timeout=30)
+        self.min_interval = min_interval
+        self.requests_made = 0
+        self._last_request = 0.0
+
+    def _throttle(self) -> None:
+        wait = self._last_request + self.min_interval - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        self._last_request = time.monotonic()
+        self.requests_made += 1
 
     def search(self, what: str, page: int, max_days_old: int) -> list[dict]:
         url = f"{self.settings.adzuna_base_url}/{self.settings.adzuna_country}/search/{page}"
@@ -42,6 +60,7 @@ class AdzunaClient:
             "sort_by": "date",
         }
         for attempt in range(3):
+            self._throttle()
             resp = self.http.get(url, params=params, headers={"Accept": "application/json"})
             if resp.status_code == 429 or resp.status_code >= 500:
                 wait = 2 ** (attempt + 1)
@@ -95,6 +114,7 @@ def parse_result(raw: dict, search_term: str) -> ParsedPosting:
         city=city,
         state=state,
         role=classify_role(title, fallback=search_term),
+        work_mode=detect_work_mode(title, location.get("display_name"), description),
         salary_min=raw.get("salary_min"),
         salary_max=raw.get("salary_max"),
         salary_is_predicted=_parse_bool(raw.get("salary_is_predicted", 0)),
@@ -135,14 +155,14 @@ def run(pages: int, max_days_old: int, settings: Settings | None = None) -> int:
             inserted = store_postings(db, parsed)
             log.info("%-20s fetched=%-4d new=%d", term, len(parsed), inserted)
             total += inserted
-    log.info("Done: %d new postings", total)
+    log.info("Done: %d new postings from %d API requests", total, client.requests_made)
     return total
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--pages", type=int, default=5, help="pages per search term (50/page)")
-    parser.add_argument("--max-days-old", type=int, default=2)
+    parser.add_argument("--pages", type=int, default=5, help="max pages per search term (50/page)")
+    parser.add_argument("--max-days-old", type=int, default=3)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     run(args.pages, args.max_days_old)

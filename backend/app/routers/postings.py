@@ -6,13 +6,14 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import Posting, PostingSkill
-from app.routers.deps import validate_role, validate_skill
-from app.schemas import FiltersResponse, PostingOut, PostingPage
+from app.routers.deps import Scope, scope_params, validate_skill
+from app.schemas import CityOption, FiltersResponse, PostingOut, PostingPage
 from app.skills import ROLE_NAMES
 
 router = APIRouter(tags=["postings"])
 
 SNIPPET_CHARS = 280
+MAX_CITIES = 150
 
 
 def _to_out(p: Posting) -> PostingOut:
@@ -24,7 +25,9 @@ def _to_out(p: Posting) -> PostingOut:
         company=p.company,
         location=p.location,
         city=p.city,
+        state=p.state,
         role=p.role,
+        work_mode=p.work_mode,
         salary_min=p.salary_min,
         salary_max=p.salary_max,
         salary_is_predicted=p.salary_is_predicted,
@@ -38,26 +41,21 @@ def _to_out(p: Posting) -> PostingOut:
 @router.get("/postings", response_model=PostingPage)
 def list_postings(
     skill: str | None = Query(None, max_length=60),
-    role: str | None = Query(None, max_length=60),
-    city: str | None = Query(None, min_length=1, max_length=120),
     q: str | None = Query(None, min_length=2, max_length=100, description="Search in titles"),
     page: int = Query(1, ge=1, le=10_000),
     page_size: int = Query(20, ge=1, le=100),
+    scope: Scope = Depends(scope_params),
     db: Session = Depends(get_db),
 ) -> PostingPage:
-    """Newest postings first, filtered by skill, role, city, and title text."""
+    """Newest postings first, filtered by skill, title text, and the shared scope
+    (role, state, city, work setting)."""
     skill = validate_skill(skill)
-    role = validate_role(role)
 
-    stmt = select(Posting)
+    stmt = select(Posting).where(*scope.conditions())
     if skill:
         stmt = stmt.where(
             Posting.id.in_(select(PostingSkill.posting_id).where(PostingSkill.skill == skill))
         )
-    if role:
-        stmt = stmt.where(Posting.role == role)
-    if city:
-        stmt = stmt.where(func.lower(Posting.city) == city.strip().lower())
     if q:
         stmt = stmt.where(func.lower(Posting.title).contains(q.strip().lower(), autoescape=True))
 
@@ -80,17 +78,24 @@ def list_postings(
 def filters(db: Session = Depends(get_db)) -> FiltersResponse:
     """Values for the frontend's dropdowns, plus freshness info."""
     present_roles = set(db.scalars(select(Posting.role).distinct()))
-    cities = db.scalars(
-        select(Posting.city)
+    states = db.scalars(
+        select(Posting.state)
+        .where(Posting.state.is_not(None))
+        .group_by(Posting.state)
+        .order_by(Posting.state)
+    ).all()
+    cities = db.execute(
+        select(Posting.city, Posting.state)
         .where(Posting.city.is_not(None))
-        .group_by(Posting.city)
+        .group_by(Posting.city, Posting.state)
         .order_by(func.count().desc(), Posting.city)
-        .limit(40)
+        .limit(MAX_CITIES)
     ).all()
     return FiltersResponse(
         roles=[r for r in ROLE_NAMES if r in present_roles]
         + sorted(present_roles - set(ROLE_NAMES)),
-        cities=list(cities),
+        states=list(states),
+        cities=[CityOption(city=c, state=s) for c, s in cities],
         total_postings=db.scalar(select(func.count()).select_from(Posting)) or 0,
         last_ingested_at=db.scalar(select(func.max(Posting.ingested_at))),
     )

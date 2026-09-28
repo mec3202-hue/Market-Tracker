@@ -15,17 +15,35 @@ from sqlalchemy import delete
 from app.db import SessionLocal, init_db
 from app.ingest import ParsedPosting, store_postings
 from app.models import Posting
-from app.skills import classify_role, extract_skills
+from app.skills import classify_role, detect_work_mode, extract_skills
 
 CITIES = [
     ("New York", "New York", 1.18),
+    ("Brooklyn", "New York", 1.12),
     ("San Francisco", "California", 1.25),
+    ("Los Angeles", "California", 1.12),
+    ("San Diego", "California", 1.05),
     ("Seattle", "Washington", 1.15),
     ("Austin", "Texas", 1.0),
+    ("Dallas", "Texas", 0.98),
+    ("Houston", "Texas", 0.96),
     ("Chicago", "Illinois", 1.0),
     ("Boston", "Massachusetts", 1.1),
     ("Atlanta", "Georgia", 0.93),
     ("Denver", "Colorado", 0.97),
+    ("Charlotte", "North Carolina", 0.92),
+    ("Raleigh", "North Carolina", 0.93),
+    ("Miami", "Florida", 0.94),
+    ("Phoenix", "Arizona", 0.92),
+    ("Minneapolis", "Minnesota", 0.95),
+    ("Columbus", "Ohio", 0.9),
+    ("Arlington", "Virginia", 1.05),
+]
+# (work mode text, weight): roughly 20% remote, 25% hybrid in the demo data
+WORK_MODE_LINES = [
+    ("This role is fully remote within the US.", 0.2),
+    ("Hybrid schedule: 3 days a week in office.", 0.25),
+    ("", 0.55),
 ]
 ROLES = {
     "Data Analyst": (72_000, ["SQL", "Excel", "Tableau", "Python", "Power BI", "Statistics"]),
@@ -75,7 +93,8 @@ def demo_postings(count: int, rng: random.Random) -> list[ParsedPosting]:
 
         seniority = rng.choice(["", "", "Senior ", "Junior "])
         title = f"{seniority}{role}"
-        description = f"We are hiring a {title.lower()}. Required: {', '.join(skills)}."
+        mode_line = rng.choices(*zip(*WORK_MODE_LINES, strict=True))[0]
+        description = f"We are hiring a {title.lower()}. Required: {', '.join(skills)}. {mode_line}"
         mid = (
             base_salary
             * multiplier
@@ -92,6 +111,7 @@ def demo_postings(count: int, rng: random.Random) -> list[ParsedPosting]:
             city=city,
             state=state,
             role=classify_role(title),
+            work_mode=detect_work_mode(title, description),
             salary_min=round(mid * 0.9, -3) if has_salary else None,
             salary_max=round(mid * 1.1, -3) if has_salary else None,
             salary_is_predicted=False,
@@ -105,7 +125,7 @@ def demo_postings(count: int, rng: random.Random) -> list[ParsedPosting]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--count", type=int, default=600)
+    parser.add_argument("--count", type=int, default=1500)
     parser.add_argument("--reset", action="store_true", help="delete existing demo postings first")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
