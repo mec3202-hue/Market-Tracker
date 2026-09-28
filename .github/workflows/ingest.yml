@@ -23,6 +23,12 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
       - run: pip install -r requirements.txt
+      - name: Check database connection
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then echo "DATABASE_URL secret is not set"; exit 1; fi
+          python -m app.check_db
       - name: Pull new postings from Adzuna
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
