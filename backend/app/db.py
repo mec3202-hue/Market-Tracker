@@ -1,6 +1,6 @@
 from collections.abc import Iterator
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect, select, text, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -32,7 +32,42 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False
 def init_db(bind: Engine | None = None) -> None:
     from app import models  # noqa: F401  (registers tables on Base.metadata)
 
-    Base.metadata.create_all(bind=bind or engine)
+    bind = bind or engine
+    Base.metadata.create_all(bind=bind)
+    _migrate(bind)
+
+
+def _migrate(bind: Engine) -> None:
+    """Bring databases created by earlier versions up to date.
+
+    create_all() only creates missing tables, so columns added later are
+    added here, and existing rows are backfilled.
+    """
+    from app.models import Posting
+    from app.skills import detect_work_mode
+
+    inspector = inspect(bind)
+    columns = {c["name"] for c in inspector.get_columns("postings")}
+    indexes = {i["name"] for i in inspector.get_indexes("postings")}
+    with bind.begin() as conn:
+        if "work_mode" not in columns:
+            conn.execute(text("ALTER TABLE postings ADD COLUMN work_mode VARCHAR(10)"))
+        for column in ("work_mode", "state"):
+            name = f"ix_postings_{column}"
+            if name not in indexes:
+                conn.execute(text(f"CREATE INDEX IF NOT EXISTS {name} ON postings ({column})"))
+
+        rows = conn.execute(
+            select(Posting.id, Posting.title, Posting.location, Posting.description).where(
+                Posting.work_mode.is_(None)
+            )
+        ).all()
+        for pid, title, location, description in rows:
+            conn.execute(
+                update(Posting)
+                .where(Posting.id == pid)
+                .values(work_mode=detect_work_mode(title, location, description))
+            )
 
 
 def get_db() -> Iterator[Session]:

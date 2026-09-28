@@ -30,3 +30,14 @@ export function formatDate(iso) {
   const date = new Date(iso.endsWith("Z") || iso.includes("+") ? iso : `${iso}Z`);
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
+
+/** Evenly spaced "nice" axis ticks (steps of 1, 2, 2.5, or 5 x 10^n) from 0 past `max`. */
+export function niceTicks(max, target = 5) {
+  if (!(max > 0)) return [0, 1];
+  const rough = max / target;
+  const power = 10 ** Math.floor(Math.log10(rough));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * power).find((s) => s >= rough);
+  const ticks = [];
+  for (let t = 0; t < max + step; t += step) ticks.push(Number(t.toPrecision(12)));
+  return ticks;
+}

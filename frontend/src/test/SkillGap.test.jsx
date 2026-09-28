@@ -39,7 +39,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("SkillGap", () => {
   it("shows missing skills and updates when a skill is selected", async () => {
-    render(<SkillGap filters={{ roles: ["Data Analyst"], cities: [] }} />);
+    render(<SkillGap scope={{ role: "", state: "", city: "", work_mode: "" }} />);
 
     expect(await screen.findByText("0%")).toBeInTheDocument();
     const learnNext = screen.getByRole("list", { name: "Skills to learn next" });
@@ -53,6 +53,6 @@ describe("SkillGap", () => {
     expect(updated).not.toHaveTextContent("SQL");
     expect(JSON.parse(localStorage.getItem("market-tracker:my-skills"))).toEqual(["SQL"]);
     const lastCall = fetch.mock.calls.at(-1);
-    expect(JSON.parse(lastCall[1].body)).toMatchObject({ skills: ["SQL"], top_n: 15 });
+    expect(JSON.parse(lastCall[1].body)).toMatchObject({ skills: ["SQL"], top_n: 20, state: null });
   });
 });

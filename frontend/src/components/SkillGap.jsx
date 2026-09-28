@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../api.js";
 import { formatPct } from "../format.js";
 import { useApi } from "../useApi.js";
-import { Select, Status } from "./Controls.jsx";
+import { describeScope, Status } from "./Controls.jsx";
 
 const STORAGE_KEY = "market-tracker:my-skills";
+const TOP_N = 20;
 
 function loadSaved() {
   try {
@@ -15,11 +16,13 @@ function loadSaved() {
   }
 }
 
-export default function SkillGap({ filters }) {
+export default function SkillGap({ scope }) {
   const [mine, setMine] = useState(loadSaved);
-  const [role, setRole] = useState("");
   const catalog = useApi(() => api.skills(), []);
-  const gap = useApi(() => api.skillGap({ skills: mine, role: role || null, top_n: 15 }), [mine, role]);
+  const gap = useApi(
+    () => api.skillGap({ ...scope, skills: mine, top_n: TOP_N }),
+    [mine, scope],
+  );
 
   useEffect(() => {
     try {
@@ -49,12 +52,10 @@ export default function SkillGap({ filters }) {
         <div>
           <h2>Skill gap checker</h2>
           <p className="muted">
-            Pick the skills you have. We compare them with the 15 skills that show up most in
-            recent postings.
+            Pick the skills you have. We compare them with the {TOP_N} skills that show up most
+            in recent postings for: <strong>{describeScope(scope)}</strong>. Use the filters above
+            to target a role, state, or remote work.
           </p>
-        </div>
-        <div className="filters">
-          <Select label="Target role" value={role} onChange={setRole} options={filters?.roles ?? []} allLabel="All roles" />
         </div>
       </div>
 
@@ -100,8 +101,8 @@ export default function SkillGap({ filters }) {
               <div className="stat">
                 <div className="stat-value">{formatPct(result.coverage)}</div>
                 <div className="muted">
-                  of the top {result.top_skills.length} skills
-                  {result.role ? ` for ${result.role}` : ""} covered
+                  of the top {result.top_skills.length} skills covered
+                  {` (${result.total_postings.toLocaleString()} postings)`}
                 </div>
               </div>
 

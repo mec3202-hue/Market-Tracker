@@ -3,17 +3,17 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import { api } from "../api.js";
 import { formatChange, formatPct } from "../format.js";
 import { useApi } from "../useApi.js";
-import { ChartTooltip, Segmented, Select, Status, WINDOW_OPTIONS } from "./Controls.jsx";
+import { BAR_SIZE, chartHeight, ChartTooltip, describeScope, Segmented, Status, WINDOW_OPTIONS } from "./Controls.jsx";
 
-const ROW_HEIGHT = 30;
+const ROW_HEIGHT = 28;
+const LIMIT = 25;
 
-export default function TrendingSkills({ filters }) {
-  const [role, setRole] = useState("");
+export default function TrendingSkills({ scope }) {
   const [days, setDays] = useState(30);
   const [asTable, setAsTable] = useState(false);
   const { data, error, loading } = useApi(
-    () => api.trending({ role, days, limit: 15 }),
-    [role, days],
+    () => api.trending({ ...scope, days, limit: LIMIT }),
+    [scope, days],
   );
 
   const skills = data?.skills ?? [];
@@ -28,12 +28,11 @@ export default function TrendingSkills({ filters }) {
         <div>
           <h2>Most requested skills</h2>
           <p className="muted">
-            Share of postings mentioning each skill
+            Top {LIMIT} skills by share of postings · {describeScope(scope)}
             {data ? ` · ${data.total_postings.toLocaleString()} postings in the last ${days} days` : ""}
           </p>
         </div>
         <div className="filters">
-          <Select label="Role" value={role} onChange={setRole} options={filters?.roles ?? []} allLabel="All roles" />
           <Segmented label="Window" value={days} onChange={setDays} options={WINDOW_OPTIONS} />
           <Segmented
             label="View"
@@ -75,7 +74,7 @@ export default function TrendingSkills({ filters }) {
               </tbody>
             </table>
           ) : (
-            <div className="chart" style={{ height: skills.length * ROW_HEIGHT + 40 }}>
+            <div className="chart" style={{ height: chartHeight(skills.length, ROW_HEIGHT) }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={skills} layout="vertical" margin={{ top: 4, right: 48, bottom: 4, left: 8 }} barCategoryGap={6}>
                   <CartesianGrid horizontal={false} className="grid" />
@@ -103,6 +102,7 @@ export default function TrendingSkills({ filters }) {
                     dataKey="share"
                     className="series-1"
                     radius={[0, 4, 4, 0]}
+                    barSize={BAR_SIZE}
                     isAnimationActive={false}
                     label={{ position: "right", className: "bar-label", formatter: (v) => formatPct(v) }}
                   />

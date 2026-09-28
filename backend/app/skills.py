@@ -39,6 +39,8 @@ SKILLS: tuple[Skill, ...] = (
     _s("Python", "Languages", r"python"),
     _s("R", "Languages", r"R(?![&/-])", r"RStudio", r"tidyverse", case_sensitive=True),
     _s("SAS", "Languages", r"SAS", case_sensitive=True),
+    _s("SPSS", "Languages", r"spss"),
+    _s("Stata", "Languages", r"stata"),
     _s("Scala", "Languages", r"scala"),
     _s("Java", "Languages", r"java(?!script)"),
     _s("JavaScript", "Languages", r"javascript", r"node\.?js"),
@@ -53,6 +55,8 @@ SKILLS: tuple[Skill, ...] = (
     _s("Google Sheets", "BI & Visualization", r"google sheets"),
     _s("Mode", "BI & Visualization", r"Mode Analytics", case_sensitive=True),
     _s("Metabase", "BI & Visualization", r"metabase"),
+    _s("Sigma", "BI & Visualization", r"Sigma Computing", case_sensitive=True),
+    _s("Alteryx", "BI & Visualization", r"alteryx"),
     # Data platforms & warehouses
     _s("Snowflake", "Data Platforms", r"snowflake"),
     _s("BigQuery", "Data Platforms", r"big\s?query"),
@@ -71,6 +75,8 @@ SKILLS: tuple[Skill, ...] = (
     _s("Fivetran", "Data Engineering", r"fivetran"),
     _s("Git", "Data Engineering", r"git", r"github", r"gitlab"),
     _s("Docker", "Data Engineering", r"docker"),
+    _s("Kafka", "Data Engineering", r"kafka"),
+    _s("Data Governance", "Data Engineering", r"data governance", r"data quality"),
     # Cloud
     _s("AWS", "Cloud", r"aws", r"amazon web services"),
     _s("Azure", "Cloud", r"azure"),
@@ -95,6 +101,15 @@ SKILLS: tuple[Skill, ...] = (
         r"dimensional model(?:s|ing|ling)?",
     ),
     _s("Data Visualization", "Methods", r"data visuali[sz]ation", r"dashboards?"),
+    _s(
+        "Generative AI",
+        "Methods",
+        r"generative ai",
+        r"gen ?ai",
+        r"llms?",
+        r"large language models?",
+    ),
+    _s("KPIs", "Methods", r"kpis?", r"key performance indicators?"),
     # Libraries
     _s("pandas", "Libraries", r"pandas"),
     _s("NumPy", "Libraries", r"numpy"),
@@ -107,6 +122,8 @@ SKILLS: tuple[Skill, ...] = (
     _s("Jira", "Business Tools", r"jira"),
     _s("SAP", "Business Tools", r"SAP", case_sensitive=True),
     _s("Workday", "Business Tools", r"workday"),
+    _s("Amplitude", "Business Tools", r"amplitude analytics", r"Amplitude"),
+    _s("Mixpanel", "Business Tools", r"mixpanel"),
 )
 
 SKILLS_BY_NAME: dict[str, Skill] = {s.name: s for s in SKILLS}
@@ -135,6 +152,7 @@ ROLES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Marketing Analyst", ("marketing analyst", "marketing analytics", "digital analyst")),
     ("Financial Analyst", ("financial analyst", "finance analyst", "fp&a")),
     ("Product Analyst", ("product analyst",)),
+    ("Operations Analyst", ("operations analyst", "business operations analyst")),
     ("BI Analyst", ("bi analyst", "business intelligence", "bi developer", "bi engineer")),
     ("Business Analyst", ("business analyst", "business systems analyst")),
     ("Data Analyst", ("data analyst", "analyst")),
@@ -151,3 +169,54 @@ def classify_role(title: str, fallback: str | None = None) -> str:
     if fallback:
         return classify_role(fallback)
     return OTHER_ROLE
+
+
+# Work setting ---------------------------------------------------------------
+# Adzuna has no remote flag, so it's inferred from the posting's text. Postings
+# that don't mention either are "onsite" (in person, or not stated).
+REMOTE, HYBRID, ONSITE = "remote", "hybrid", "onsite"
+WORK_MODES: tuple[str, ...] = (REMOTE, HYBRID, ONSITE)
+
+_NOT_REMOTE = re.compile(
+    r"(?<!\w)(?:not|no|non)[- ]remote(?!\w)|not (?:a |an )?remote|remote work is not", re.I
+)
+_HYBRID = re.compile(r"(?<!\w)hybrid(?!\w)(?! cloud)", re.I)
+_REMOTE = re.compile(
+    r"(?<!\w)(?:remote(?! sensing)|work(?:ing)? from home|wfh|telecommut\w*|work from anywhere"
+    r"|virtual (?:role|position))(?!\w)",
+    re.I,
+)
+
+
+def detect_work_mode(*texts: str | None) -> str:
+    """Classify a posting as remote, hybrid, or onsite from its title/location/description."""
+    text = "\n".join(t for t in texts if t)
+    if _NOT_REMOTE.search(text):
+        return HYBRID if _HYBRID.search(text) else ONSITE
+    if _HYBRID.search(text):
+        return HYBRID
+    if _REMOTE.search(text):
+        return REMOTE
+    return ONSITE
+
+
+# US states -------------------------------------------------------------------
+US_STATES: dict[str, str] = {
+    "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California",
+    "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware", "DC": "District of Columbia",
+    "FL": "Florida", "GA": "Georgia", "HI": "Hawaii", "ID": "Idaho", "IL": "Illinois",
+    "IN": "Indiana", "IA": "Iowa", "KS": "Kansas", "KY": "Kentucky", "LA": "Louisiana",
+    "ME": "Maine", "MD": "Maryland", "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota",
+    "MS": "Mississippi", "MO": "Missouri", "MT": "Montana", "NE": "Nebraska", "NV": "Nevada",
+    "NH": "New Hampshire", "NJ": "New Jersey", "NM": "New Mexico", "NY": "New York",
+    "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio", "OK": "Oklahoma", "OR": "Oregon",
+    "PA": "Pennsylvania", "RI": "Rhode Island", "SC": "South Carolina", "SD": "South Dakota",
+    "TN": "Tennessee", "TX": "Texas", "UT": "Utah", "VT": "Vermont", "VA": "Virginia",
+    "WA": "Washington", "WV": "West Virginia", "WI": "Wisconsin", "WY": "Wyoming",
+}  # fmt: skip
+
+
+def canonical_state(value: str) -> str:
+    """Expand a two-letter abbreviation ("CA" -> "California"); otherwise return as given."""
+    value = value.strip()
+    return US_STATES.get(value.upper(), value)

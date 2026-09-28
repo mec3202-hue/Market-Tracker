@@ -10,11 +10,19 @@ from typing import Annotated
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+# Each term costs up to --pages API requests per run; 10 terms x 5 pages stays
+# well under Adzuna's free limits (250 requests/day, 2,500/month).
 DEFAULT_SEARCH_TERMS = [
     "data analyst",
     "marketing analyst",
     "business analyst",
     "analytics engineer",
+    "business intelligence analyst",
+    "product analyst",
+    "financial analyst",
+    "operations analyst",
+    "data scientist",
+    "reporting analyst",
 ]
 
 

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import Posting, PostingSkill
-from app.routers.deps import since, validate_role
+from app.routers.deps import Scope, scope_params, since, validate_role
 from app.schemas import (
     GapSkill,
     SkillGapRequest,
@@ -15,20 +15,18 @@ from app.schemas import (
     TrendingResponse,
     TrendingSkill,
 )
-from app.skills import SKILLS, SKILLS_BY_NAME, canonical_skill
+from app.skills import SKILLS, SKILLS_BY_NAME, canonical_skill, canonical_state
 
 router = APIRouter(prefix="/skills", tags=["skills"])
 
 
 def _skill_counts(
-    db: Session, start: datetime, end: datetime | None, role: str | None
+    db: Session, start: datetime, end: datetime | None, scope: Scope
 ) -> tuple[int, dict[str, int]]:
-    """Posting total and per-skill posting counts for postings in [start, end)."""
-    conditions = [Posting.posted_at >= start]
+    """Posting total and per-skill posting counts for in-scope postings in [start, end)."""
+    conditions = [Posting.posted_at >= start, *scope.conditions()]
     if end is not None:
         conditions.append(Posting.posted_at < end)
-    if role:
-        conditions.append(Posting.role == role)
 
     total = db.scalar(select(func.count()).select_from(Posting).where(*conditions)) or 0
     rows = db.execute(
@@ -38,6 +36,10 @@ def _skill_counts(
         .group_by(PostingSkill.skill)
     )
     return total, {skill: count for skill, count in rows}
+
+
+def _category(name: str) -> str:
+    return SKILLS_BY_NAME[name].category if name in SKILLS_BY_NAME else "Other"
 
 
 @router.get("", response_model=list[SkillInfo])
@@ -50,14 +52,13 @@ def list_skills() -> list[SkillInfo]:
 def trending_skills(
     days: int = Query(30, ge=1, le=365, description="Window length in days"),
     limit: int = Query(20, ge=1, le=100),
-    role: str | None = Query(None, max_length=60),
+    scope: Scope = Depends(scope_params),
     db: Session = Depends(get_db),
 ) -> TrendingResponse:
     """Most-requested skills in the last `days`, compared with the window before it."""
-    role = validate_role(role)
     current_start, previous_start = since(days), since(2 * days)
-    total, counts = _skill_counts(db, current_start, None, role)
-    prev_total, prev_counts = _skill_counts(db, previous_start, current_start, role)
+    total, counts = _skill_counts(db, current_start, None, scope)
+    prev_total, prev_counts = _skill_counts(db, previous_start, current_start, scope)
 
     skills = []
     for name, count in counts.items():
@@ -66,7 +67,7 @@ def trending_skills(
         skills.append(
             TrendingSkill(
                 skill=name,
-                category=SKILLS_BY_NAME[name].category if name in SKILLS_BY_NAME else "Other",
+                category=_category(name),
                 count=count,
                 share=round(share, 4),
                 previous_share=round(prev_share, 4),
@@ -76,7 +77,7 @@ def trending_skills(
     skills.sort(key=lambda s: (-s.count, s.skill))
     return TrendingResponse(
         days=days,
-        role=role,
+        role=scope.role,
         total_postings=total,
         previous_total_postings=prev_total,
         skills=skills[:limit],
@@ -86,7 +87,12 @@ def trending_skills(
 @router.post("/gap", response_model=SkillGapResponse)
 def skill_gap(body: SkillGapRequest, db: Session = Depends(get_db)) -> SkillGapResponse:
     """Compare your skills with the most common skills in recent postings."""
-    role = validate_role(body.role)
+    scope = Scope(
+        role=validate_role(body.role),
+        state=canonical_state(body.state) if body.state else None,
+        city=body.city.strip() if body.city else None,
+        work_mode=body.work_mode,
+    )
     mine: set[str] = set()
     unrecognized: list[str] = []
     for raw in body.skills:
@@ -96,19 +102,19 @@ def skill_gap(body: SkillGapRequest, db: Session = Depends(get_db)) -> SkillGapR
         elif raw.strip():
             unrecognized.append(raw.strip()[:60])
 
-    total, counts = _skill_counts(db, since(body.days), None, role)
+    total, counts = _skill_counts(db, since(body.days), None, scope)
     ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[: body.top_n]
     top = [
         GapSkill(
             skill=name,
-            category=SKILLS_BY_NAME[name].category if name in SKILLS_BY_NAME else "Other",
+            category=_category(name),
             share=round(count / total, 4) if total else 0.0,
             have=name in mine,
         )
         for name, count in ranked
     ]
     return SkillGapResponse(
-        role=role,
+        role=scope.role,
         total_postings=total,
         coverage=round(sum(s.have for s in top) / len(top), 4) if top else 0.0,
         top_skills=top,

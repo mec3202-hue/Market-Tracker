@@ -42,8 +42,16 @@ const httpApi = {
   skills: () => request("/skills"),
   trending: (params) => request(`/skills/trending${toQuery(params)}`),
   salaries: (params) => request(`/salaries${toQuery(params)}`),
+  locations: (params) => request(`/locations${toQuery(params)}`),
   postings: (params) => request(`/postings${toQuery(params)}`),
-  skillGap: (body) => request("/skills/gap", { method: "POST", body: JSON.stringify(body) }),
+  skillGap: (body) =>
+    request("/skills/gap", {
+      method: "POST",
+      // The API wants null (not "") for unset filters.
+      body: JSON.stringify(
+        Object.fromEntries(Object.entries(body).map(([k, v]) => [k, v === "" ? null : v])),
+      ),
+    }),
 };
 
 // VITE_STATIC_DATA=1 builds a backend-free site that reads exported JSON files
@@ -51,3 +59,5 @@ const httpApi = {
 export const api = import.meta.env.VITE_STATIC_DATA
   ? loadStaticApi(import.meta.env.BASE_URL)
   : httpApi;
+
+export const isStatic = Boolean(import.meta.env.VITE_STATIC_DATA);
