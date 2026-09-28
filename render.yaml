@@ -1,0 +1,27 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# The database lives on Neon or Supabase (free tier); paste its URL into
+# DATABASE_URL in the Render dashboard.
+services:
+  - type: web
+    name: market-tracker-api
+    runtime: docker
+    rootDir: backend
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false # e.g. https://market-tracker-web.onrender.com
+
+  - type: web
+    name: market-tracker-web
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        sync: false # e.g. https://market-tracker-api.onrender.com
