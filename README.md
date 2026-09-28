@@ -112,6 +112,26 @@ frontend, and builds the API's Docker image.
 
 ## Deployment
 
+### Option A: GitHub Pages (everything on GitHub, no server)
+
+The site is published at `https://<your-user>.github.io/<repo>/`. GitHub Pages
+serves only static files, so `.github/workflows/pages.yml` exports recent postings
+to JSON (`python -m app.export_static`), and the React app computes every view from
+those files in the browser (`VITE_STATIC_DATA=1`). The results match the API's.
+
+1. Create a free Postgres database on [Neon](https://neon.tech) and add these
+   repository secrets under Settings → Secrets and variables → Actions:
+   `DATABASE_URL`, `ADZUNA_APP_ID`, and `ADZUNA_APP_KEY`.
+2. Under Settings → Pages → Build and deployment, set **Source** to **GitHub Actions**.
+3. Under Actions → **Daily ingest**, click **Run workflow**. When it finishes,
+   **Deploy to GitHub Pages** runs automatically and publishes the site. After
+   that, it updates every day.
+4. *(Optional)* To use a custom domain, enter it under Settings → Pages →
+   Custom domain and add the DNS record GitHub shows you. The next deploy
+   picks up the new address automatically.
+
+### Option B: Render (live API)
+
 1. **Database:** create a free Postgres database on [Neon](https://neon.tech) or
    [Supabase](https://supabase.com) and copy its connection string. Tables are
    created automatically on the API's first start.
@@ -132,6 +152,7 @@ backend/
     models.py        postings and posting_skills tables
     skills.py        skill catalog, extraction, role classification
     ingest.py        Adzuna client and deduplicating loader (python -m app.ingest)
+    export_static.py JSON export for the GitHub Pages build
     seed.py          synthetic demo data (python -m app.seed)
     routers/         /skills, /salaries, /postings, /filters
   tests/
@@ -139,8 +160,9 @@ frontend/
   src/
     App.jsx          tabs and layout
     components/      TrendingSkills, Salaries, SkillGap, Postings
-    api.js           API client
-.github/workflows/   ci.yml, ingest.yml
+    api.js           API client (HTTP, or static mode)
+    staticApi.js     the API computed in the browser from exported JSON
+.github/workflows/   ci.yml, ingest.yml, pages.yml
 docker-compose.yml
 render.yaml
 ```

@@ -19,3 +19,6 @@ dist/
 .DS_Store
 .idea/
 .vscode/
+
+# Exported static data (built in CI)
+frontend/public/data/

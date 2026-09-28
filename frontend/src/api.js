@@ -1,3 +1,5 @@
+import { loadStaticApi } from "./staticApi.js";
+
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
 export class ApiError extends Error {
@@ -35,7 +37,7 @@ async function request(path, options = {}) {
   return res.json();
 }
 
-export const api = {
+const httpApi = {
   filters: () => request("/filters"),
   skills: () => request("/skills"),
   trending: (params) => request(`/skills/trending${toQuery(params)}`),
@@ -43,3 +45,9 @@ export const api = {
   postings: (params) => request(`/postings${toQuery(params)}`),
   skillGap: (body) => request("/skills/gap", { method: "POST", body: JSON.stringify(body) }),
 };
+
+// VITE_STATIC_DATA=1 builds a backend-free site that reads exported JSON files
+// (see backend/app/export_static.py); otherwise the app talks to the FastAPI server.
+export const api = import.meta.env.VITE_STATIC_DATA
+  ? loadStaticApi(import.meta.env.BASE_URL)
+  : httpApi;
